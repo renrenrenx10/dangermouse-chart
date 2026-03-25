@@ -1,142 +1,306 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Danger Mouse — Demand Forecast</title>
+  <title>DangerMouse — Demand Forecast</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@400;600;700&display=swap" rel="stylesheet"/>
   <style>
+    :root {
+      --navy:    #0d3b6e;
+      --cyan:    #00a8e8;
+      --bg:      #f4f6f9;
+      --white:   #ffffff;
+      --text:    #1a1a2e;
+      --muted:   #6c757d;
+      --danger:  #e74c3c;
+      --success: #2ecc71;
+      --border:  #dee2e6;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #f4f6f9;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      padding: 32px 16px;
+    body { font-family: 'Barlow', sans-serif; background: var(--bg); min-height: 100vh; display: flex; flex-direction: column; }
+
+    nav {
+      background: var(--navy); height: 60px; display: flex; align-items: center;
+      padding: 0 24px; gap: 16px; flex-shrink: 0;
     }
-    h1 {
-      font-size: 1.5rem;
-      color: #1a1a2e;
-      margin-bottom: 8px;
+    nav .title { font-family: 'Share Tech Mono', monospace; color: #fff; font-size: 17px; flex: 1; }
+    nav .title span { color: var(--cyan); }
+    nav .sign-btn {
+      background: var(--cyan); color: #fff; border: none; padding: 8px 18px;
+      border-radius: 4px; font-family: 'Share Tech Mono', monospace; font-size: 13px;
+      cursor: pointer; transition: opacity .2s;
     }
-    #status {
-      font-size: 0.9rem;
-      color: #666;
-      margin-bottom: 24px;
+    nav .sign-btn:hover { opacity: .85; }
+    nav .sign-btn.out { background: transparent; border: 1px solid rgba(255,255,255,.3); }
+    #userLabel { font-family: 'Share Tech Mono', monospace; color: rgba(255,255,255,.6); font-size: 12px; }
+
+    .header-bar {
+      background: var(--white); border-bottom: 1px solid var(--border);
+      padding: 14px 24px; display: flex; align-items: flex-end; gap: 24px;
     }
-    #status.error { color: #c0392b; }
-    #chartWrapper {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-      padding: 24px;
-      width: 100%;
-      max-width: 960px;
+    .header-bar h1 { font-family: 'Share Tech Mono', monospace; font-size: 22px; color: var(--text); line-height: 1; }
+    .header-bar p  { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .kpis { display: flex; gap: 12px; margin-left: auto; }
+    .kpi  { background: rgba(13,59,110,.06); border-radius: 6px; padding: 8px 16px; text-align: center; min-width: 110px; }
+    .kpi-label { font-size: 10px; color: var(--muted); font-family: 'Share Tech Mono', monospace; text-transform: uppercase; letter-spacing: .04em; }
+    .kpi-value { font-size: 20px; font-weight: 700; color: var(--navy); font-family: 'Share Tech Mono', monospace; }
+
+    main { flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    #statusBar {
+      display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+      background: var(--white); border-radius: 8px; border-left: 4px solid var(--cyan);
+      font-family: 'Share Tech Mono', monospace; font-size: 13px; color: var(--muted);
     }
-    canvas { width: 100% !important; }
+    #statusBar.error  { border-color: var(--danger);  color: var(--danger); }
+    #statusBar.ok     { border-color: var(--success); color: #1a7a4a; }
+
+    .spinner {
+      width: 16px; height: 16px; border: 2px solid var(--border);
+      border-top-color: var(--cyan); border-radius: 50%;
+      animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .filters {
+      background: var(--white); border-radius: 8px; padding: 14px 20px;
+      display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+    }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono', monospace; text-transform: uppercase; }
+    .filter-group select {
+      border: 1px solid var(--navy); border-radius: 4px; padding: 6px 10px;
+      font-family: 'Barlow', sans-serif; font-size: 13px; color: var(--text);
+      background: var(--white); min-width: 160px; cursor: pointer;
+    }
+    .filter-group select:focus { outline: 2px solid var(--cyan); }
+
+    .chart-card { background: var(--white); border-radius: 8px; padding: 24px; flex: 1; }
+    .chart-card canvas { max-height: 460px; }
+
+    #emptyState {
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      padding: 60px; color: var(--muted); font-family: 'Share Tech Mono', monospace;
+      font-size: 14px; gap: 12px;
+    }
+    #emptyState .icon { font-size: 40px; }
   </style>
 </head>
 <body>
-  <h1>Demand Forecast</h1>
-  <div id="status">Loading data from SharePoint…</div>
-  <div id="chartWrapper">
-    <canvas id="demandChart" height="420"></canvas>
+
+<nav>
+  <div class="title">☢ &nbsp;<span>DangerMouse</span> — Nuclear Demand Model</div>
+  <span id="userLabel"></span>
+  <button class="sign-btn" id="btnSignIn" onclick="signIn()">Sign in</button>
+  <button class="sign-btn out" id="btnSignOut" onclick="signOut()" style="display:none">Sign out</button>
+</nav>
+
+<div class="header-bar">
+  <div>
+    <h1>Demand Forecast</h1>
+    <p>Generated from Power Apps · DangerMouse SharePoint</p>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="kpi-label">Total Demand</div><div class="kpi-value" id="kpiTotal">—</div></div>
+    <div class="kpi"><div class="kpi-label">Products</div><div class="kpi-value" id="kpiProducts">—</div></div>
+    <div class="kpi"><div class="kpi-label">Year Span</div><div class="kpi-value" id="kpiYears">—</div></div>
+    <div class="kpi"><div class="kpi-label">Developers</div><div class="kpi-value" id="kpiDevs">—</div></div>
+  </div>
+</div>
+
+<main>
+  <div id="statusBar"><div class="spinner" id="spinner"></div><span id="statusText">Waiting for sign-in…</span></div>
+
+  <div class="filters" id="filterBar" style="display:none">
+    <div class="filter-group">
+      <label>Developer</label>
+      <select id="filterDev" onchange="applyFilters()"><option value="All">All Developers</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Product</label>
+      <select id="filterProd" onchange="applyFilters()"><option value="All">All Products</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Year From</label>
+      <select id="filterYearFrom" onchange="applyFilters()"><option value="All">All</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Year To</label>
+      <select id="filterYearTo" onchange="applyFilters()"><option value="All">All</option></select>
+    </div>
   </div>
 
-  <script>
-    // ── CONFIG ────────────────────────────────────────────────────────────────
-    const SITE_URL   = "https://nuccol.sharepoint.com/sites/DangerMouse";
-    const LIST_NAME  = "ChartCache";
-    const ITEM_TITLE = "cache";
-    // ── END CONFIG ────────────────────────────────────────────────────────────
+  <div class="chart-card">
+    <div id="emptyState"><div class="icon">📊</div><div>No data yet — run Generate Demand in Power Apps first.</div></div>
+    <canvas id="demandChart"></canvas>
+  </div>
+</main>
 
-    const palette = [
-      '#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f',
-      '#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac',
-      '#1f77b4','#aec7e8','#ffbb78','#98df8a','#d62728'
-    ];
+<script>
+const CLIENT_ID  = "ec0a6806-59e8-4ea9-8ff5-6bdb1ba87baf";
+const TENANT_ID  = "common";
+const SITE_URL   = "https://nuccol.sharepoint.com/sites/DangerMouse";
+const LIST_NAME  = "ChartCache";
+const ITEM_TITLE = "cache";
 
-    const status = document.getElementById('status');
+const msalInstance = new msal.PublicClientApplication({
+  auth: {
+    clientId: CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: window.location.href.split('?')[0]
+  },
+  cache: { cacheLocation: "sessionStorage" }
+});
 
-    async function fetchChartData() {
-      // SharePoint REST — uses the user's existing M365 browser session (cookie/MSAL)
-      const url =
-        `${SITE_URL}/_api/web/lists/getbytitle('${LIST_NAME}')/items` +
-        `?$filter=Title eq '${ITEM_TITLE}'&$select=ChartData&$top=1`;
+const scopes = ["https://nuccol.sharepoint.com/AllSites.Read"];
+const palette = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac','#1f77b4','#aec7e8','#ffbb78','#98df8a','#d62728'];
 
-      const resp = await fetch(url, {
-        credentials: 'include',          // send the M365 session cookie
-        headers: { Accept: 'application/json;odata=nometadata' }
-      });
+let allData = [];
+let chartInstance = null;
 
-      if (!resp.ok) {
-        throw new Error(`SharePoint returned ${resp.status} ${resp.statusText}`);
+async function init() {
+  await msalInstance.initialize();
+  const response = await msalInstance.handleRedirectPromise();
+  if (response?.account) setUser(response.account);
+
+  const accounts = msalInstance.getAllAccounts();
+  if (accounts.length > 0) {
+    setUser(accounts[0]);
+    await loadData();
+  } else {
+    setStatus("Sign in with your Microsoft 365 account to view the chart.", false);
+    hideSpinner();
+  }
+}
+
+async function signIn()  { await msalInstance.loginRedirect({ scopes }); }
+function  signOut()      { msalInstance.logoutRedirect(); }
+
+function setUser(account) {
+  document.getElementById('userLabel').textContent       = account.username;
+  document.getElementById('btnSignIn').style.display     = 'none';
+  document.getElementById('btnSignOut').style.display    = 'inline-block';
+}
+
+async function getToken() {
+  const accounts = msalInstance.getAllAccounts();
+  if (!accounts.length) throw new Error("Not signed in");
+  try {
+    const r = await msalInstance.acquireTokenSilent({ scopes, account: accounts[0] });
+    return r.accessToken;
+  } catch {
+    const r = await msalInstance.acquireTokenPopup({ scopes });
+    return r.accessToken;
+  }
+}
+
+async function loadData() {
+  setStatus("Fetching data from SharePoint…", false);
+  try {
+    const token = await getToken();
+    const url = `${SITE_URL}/_api/web/lists/getbytitle('${LIST_NAME}')/items?$filter=Title eq '${ITEM_TITLE}'&$select=ChartData&$top=1`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json;odata=nometadata" }
+    });
+    if (!resp.ok) throw new Error(`SharePoint error ${resp.status}: ${resp.statusText}`);
+    const json = await resp.json();
+    if (!json.value?.length) throw new Error("No 'cache' item found in ChartCache list.");
+    const raw = json.value[0].ChartData;
+    if (!raw) throw new Error("ChartData is empty — run Generate Demand in Power Apps first.");
+    allData = JSON.parse(raw);
+    setStatus(`Loaded ${allData.length} rows successfully.`, true);
+    hideSpinner();
+    populateFilters();
+    updateKpis(allData);
+    renderChart(allData);
+    document.getElementById('filterBar').style.display = 'flex';
+  } catch (err) {
+    setStatus("Error: " + err.message, false, true);
+    hideSpinner();
+    showEmpty();
+    console.error(err);
+  }
+}
+
+function populateFilters() {
+  fillSelect('filterDev',      [...new Set(allData.map(r => r.d))].sort(), 'All Developers');
+  fillSelect('filterProd',     [...new Set(allData.map(r => r.p))].sort(), 'All Products');
+  fillSelect('filterYearFrom', [...new Set(allData.map(r => r.y))].sort(), 'All');
+  fillSelect('filterYearTo',   [...new Set(allData.map(r => r.y))].sort(), 'All');
+}
+
+function fillSelect(id, values, allLabel) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = `<option value="All">${allLabel}</option>`;
+  values.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
+}
+
+function applyFilters() {
+  const dev = document.getElementById('filterDev').value;
+  const prod = document.getElementById('filterProd').value;
+  const yFrom = document.getElementById('filterYearFrom').value;
+  const yTo   = document.getElementById('filterYearTo').value;
+  let filtered = allData;
+  if (dev   !== 'All') filtered = filtered.filter(r => r.d === dev);
+  if (prod  !== 'All') filtered = filtered.filter(r => r.p === prod);
+  if (yFrom !== 'All') filtered = filtered.filter(r => r.y >= +yFrom);
+  if (yTo   !== 'All') filtered = filtered.filter(r => r.y <= +yTo);
+  updateKpis(filtered);
+  renderChart(filtered);
+}
+
+function updateKpis(data) {
+  document.getElementById('kpiTotal').textContent    = data.reduce((s,r) => s+(r.a||0), 0).toLocaleString();
+  document.getElementById('kpiProducts').textContent = new Set(data.map(r=>r.p)).size;
+  document.getElementById('kpiYears').textContent    = new Set(data.map(r=>r.y)).size + ' yrs';
+  document.getElementById('kpiDevs').textContent     = new Set(data.map(r=>r.d)).size;
+}
+
+function renderChart(data) {
+  if (!data.length) { showEmpty(); return; }
+  document.getElementById('emptyState').style.display  = 'none';
+  document.getElementById('demandChart').style.display = 'block';
+  const years    = [...new Set(data.map(r=>r.y))].sort();
+  const products = [...new Set(data.map(r=>r.p))].sort();
+  const datasets = products.map((p,i) => ({
+    label: p,
+    backgroundColor: palette[i % palette.length],
+    borderRadius: 3,
+    data: years.map(y => data.filter(r=>r.p===p&&r.y===y).reduce((s,r)=>s+(r.a||0),0))
+  }));
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('demandChart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: years, datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'right', labels: { font: { family: 'Barlow', size: 12 }, boxWidth: 14 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()}` } }
+      },
+      scales: {
+        x: { title: { display: true, text: 'Year', font: { family: 'Share Tech Mono', size: 12 }, color: '#6c757d' }, grid: { display: false } },
+        y: { title: { display: true, text: 'Amount', font: { family: 'Share Tech Mono', size: 12 }, color: '#6c757d' }, beginAtZero: true, ticks: { callback: v => v.toLocaleString() } }
       }
-
-      const json = await resp.json();
-      const items = json.value;
-      if (!items || items.length === 0) {
-        throw new Error('No cache item found — make sure the ChartCache list has a "cache" row.');
-      }
-
-      const raw = items[0].ChartData;
-      if (!raw) {
-        throw new Error('ChartData is empty — run "Generate Demand" in Power Apps first.');
-      }
-
-      return JSON.parse(raw);
     }
+  });
+}
 
-    function buildChart(data) {
-      const years    = [...new Set(data.map(r => r.y))].sort();
-      const products = [...new Set(data.map(r => r.p))].sort();
+function setStatus(msg, ok, err) {
+  const bar = document.getElementById('statusBar');
+  bar.className = err ? 'error' : ok ? 'ok' : '';
+  document.getElementById('statusText').textContent = msg;
+}
+function hideSpinner() { document.getElementById('spinner').style.display = 'none'; }
+function showEmpty() {
+  document.getElementById('emptyState').style.display  = 'flex';
+  document.getElementById('demandChart').style.display = 'none';
+}
 
-      const datasets = products.map((p, i) => ({
-        label: p,
-        backgroundColor: palette[i % palette.length],
-        data: years.map(y => {
-          const rows = data.filter(r => r.p === p && r.y === y);
-          return rows.reduce((s, r) => s + (r.a || 0), 0);
-        })
-      }));
-
-      new Chart(document.getElementById('demandChart').getContext('2d'), {
-        type: 'bar',
-        data: { labels: years, datasets },
-        options: {
-          responsive: true,
-          plugins: {
-            legend: { position: 'right' },
-            title:  { display: false }
-          },
-          scales: {
-            x: {
-              title: { display: true, text: 'Year', font: { weight: 'bold' } },
-              stacked: false
-            },
-            y: {
-              title: { display: true, text: 'Amount', font: { weight: 'bold' } },
-              beginAtZero: true
-            }
-          }
-        }
-      });
-    }
-
-    // ── MAIN ──────────────────────────────────────────────────────────────────
-    (async () => {
-      try {
-        const data = await fetchChartData();
-        status.textContent = `Loaded ${data.length} rows — last updated by Power Apps.`;
-        buildChart(data);
-      } catch (err) {
-        status.textContent = `Error: ${err.message}`;
-        status.classList.add('error');
-        console.error(err);
-      }
-    })();
-  </script>
+init();
+</script>
 </body>
 </html>
