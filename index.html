@@ -97,6 +97,16 @@
 
     .chart-card { background: var(--white); border-radius: 8px; padding: 24px; flex: 1; }
     .chart-card canvas { max-height: 460px; }
+    .chart-toolbar { display: flex; justify-content: flex-end; margin-bottom: 14px; }
+    .chart-type-toggle { display: flex; border: 1.5px solid var(--navy); border-radius: 6px; overflow: hidden; }
+    .chart-type-toggle button {
+      background: var(--white); color: var(--navy); border: none;
+      padding: 6px 18px; font-family: 'Share Tech Mono', monospace; font-size: 12px;
+      cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 6px;
+    }
+    .chart-type-toggle button:not(:last-child) { border-right: 1.5px solid var(--navy); }
+    .chart-type-toggle button:hover { background: rgba(13,59,110,.07); }
+    .chart-type-toggle button.active { background: var(--navy); color: #fff; }
 
     #emptyState {
       display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -157,6 +167,12 @@
   </div>
 
   <div class="chart-card">
+    <div class="chart-toolbar">
+      <div class="chart-type-toggle">
+        <button id="btnBar" class="active" onclick="setChartType('bar', this)">▐█ Bar</button>
+        <button id="btnArea" onclick="setChartType('area', this)">◿ Area</button>
+      </div>
+    </div>
     <div id="emptyState"><div class="icon">📊</div><div>No data yet — run Generate Demand in Power Apps first.</div></div>
     <canvas id="demandChart"></canvas>
   </div>
@@ -184,6 +200,14 @@ const palette = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b
 let allData = [];
 let chartInstance = null;
 let selectedDevs = new Set(['__all__']); // '__all__' means all selected
+let currentChartType = 'bar';
+
+function setChartType(type, btn) {
+  currentChartType = type;
+  document.querySelectorAll('.chart-type-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -353,15 +377,40 @@ function renderChart(data) {
   document.getElementById('demandChart').style.display = 'block';
   const years    = [...new Set(data.map(r=>r.y))].sort();
   const products = [...new Set(data.map(r=>r.p))].sort();
-  const datasets = products.map((p,i) => ({
-    label: p,
-    backgroundColor: palette[i % palette.length],
-    borderRadius: 3,
-    data: years.map(y => data.filter(r=>r.p===p&&r.y===y).reduce((s,r)=>s+(r.a||0),0))
-  }));
+
+  const isArea = currentChartType === 'area';
+
+  const datasets = products.map((p,i) => {
+    const colour = palette[i % palette.length];
+    const base = {
+      label: p,
+      data: years.map(y => data.filter(r=>r.p===p&&r.y===y).reduce((s,r)=>s+(r.a||0),0))
+    };
+    if (isArea) {
+      return {
+        ...base,
+        type: 'line',
+        fill: true,
+        tension: 0.4,
+        borderColor: colour,
+        backgroundColor: colour + '33', // ~20% opacity
+        pointBackgroundColor: colour,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 2
+      };
+    } else {
+      return {
+        ...base,
+        backgroundColor: colour,
+        borderRadius: 3
+      };
+    }
+  });
+
   if (chartInstance) chartInstance.destroy();
   chartInstance = new Chart(document.getElementById('demandChart').getContext('2d'), {
-    type: 'bar',
+    type: isArea ? 'line' : 'bar',
     data: { labels: years, datasets },
     options: {
       responsive: true,
@@ -371,7 +420,12 @@ function renderChart(data) {
       },
       scales: {
         x: { title: { display: true, text: 'Year', font: { family: 'Share Tech Mono', size: 12 }, color: '#6c757d' }, grid: { display: false } },
-        y: { title: { display: true, text: 'Amount', font: { family: 'Share Tech Mono', size: 12 }, color: '#6c757d' }, beginAtZero: true, ticks: { callback: v => v.toLocaleString() } }
+        y: {
+          stacked: isArea,
+          title: { display: true, text: 'Amount', font: { family: 'Share Tech Mono', size: 12 }, color: '#6c757d' },
+          beginAtZero: true,
+          ticks: { callback: v => v.toLocaleString() }
+        }
       }
     }
   });
