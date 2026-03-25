@@ -163,8 +163,6 @@ let chartInstance = null;
 
 async function init() {
   await msalInstance.initialize();
-  const response = await msalInstance.handleRedirectPromise();
-  if (response?.account) setUser(response.account);
 
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
@@ -176,8 +174,22 @@ async function init() {
   }
 }
 
-async function signIn()  { await msalInstance.loginRedirect({ scopes }); }
-function  signOut()      { msalInstance.logoutRedirect(); }
+async function signIn() {
+  try {
+    const response = await msalInstance.loginPopup({ scopes });
+    if (response?.account) {
+      setUser(response.account);
+      await loadData();
+    }
+  } catch (err) {
+    setStatus("Sign-in failed: " + err.message, false, true);
+    console.error(err);
+  }
+}
+
+function signOut() {
+  msalInstance.logoutPopup();
+}
 
 function setUser(account) {
   document.getElementById('userLabel').textContent       = account.username;
