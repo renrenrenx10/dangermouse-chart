@@ -65,11 +65,13 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── FILTERS ── */
     .filters {
-      background: var(--white); border-radius: 8px; padding: 14px 20px;
-      display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;
+      background: var(--white); border-radius: 8px; padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 14px;
     }
-    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
     .filter-group label { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono', monospace; text-transform: uppercase; }
     .filter-group select {
       border: 1px solid var(--navy); border-radius: 4px; padding: 6px 10px;
@@ -77,6 +79,21 @@
       background: var(--white); min-width: 160px; cursor: pointer;
     }
     .filter-group select:focus { outline: 2px solid var(--cyan); }
+
+    /* Developer toggle pills */
+    .dev-toggle-group { display: flex; flex-direction: column; gap: 6px; }
+    .dev-toggle-group > label { font-size: 11px; color: var(--muted); font-family: 'Share Tech Mono', monospace; text-transform: uppercase; }
+    .dev-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+    .dev-toggle {
+      padding: 5px 16px; border-radius: 20px; border: 1.5px solid var(--navy);
+      background: var(--white); color: var(--navy); font-family: 'Barlow', sans-serif;
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s;
+      user-select: none; white-space: nowrap;
+    }
+    .dev-toggle:hover { background: rgba(13,59,110,.07); }
+    .dev-toggle.active { background: var(--navy); color: #fff; }
+    .dev-toggle.all-btn { border-color: var(--cyan); color: var(--cyan); }
+    .dev-toggle.all-btn.active { background: var(--cyan); color: #fff; }
 
     .chart-card { background: var(--white); border-radius: 8px; padding: 24px; flex: 1; }
     .chart-card canvas { max-height: 460px; }
@@ -115,21 +132,27 @@
   <div id="statusBar"><div class="spinner" id="spinner"></div><span id="statusText">Waiting for sign-in…</span></div>
 
   <div class="filters" id="filterBar" style="display:none">
-    <div class="filter-group">
+    <!-- Row 1: Developer toggles -->
+    <div class="dev-toggle-group">
       <label>Developer</label>
-      <select id="filterDev" onchange="applyFilters()"><option value="All">All Developers</option></select>
+      <div class="dev-toggles" id="devToggles">
+        <button class="dev-toggle all-btn active" onclick="toggleDev('__all__', this)">All</button>
+      </div>
     </div>
-    <div class="filter-group">
-      <label>Product</label>
-      <select id="filterProd" onchange="applyFilters()"><option value="All">All Products</option></select>
-    </div>
-    <div class="filter-group">
-      <label>Year From</label>
-      <select id="filterYearFrom" onchange="applyFilters()"><option value="All">All</option></select>
-    </div>
-    <div class="filter-group">
-      <label>Year To</label>
-      <select id="filterYearTo" onchange="applyFilters()"><option value="All">All</option></select>
+    <!-- Row 2: Product + Year dropdowns -->
+    <div class="filter-row">
+      <div class="filter-group">
+        <label>Product</label>
+        <select id="filterProd" onchange="applyFilters()"><option value="All">All Products</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Year From</label>
+        <select id="filterYearFrom" onchange="applyFilters()"><option value="All">All</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Year To</label>
+        <select id="filterYearTo" onchange="applyFilters()"><option value="All">All</option></select>
+      </div>
     </div>
   </div>
 
@@ -160,10 +183,11 @@ const palette = ['#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f','#edc948','#b
 
 let allData = [];
 let chartInstance = null;
+let selectedDevs = new Set(['__all__']); // '__all__' means all selected
 
+// ── AUTH ──────────────────────────────────────────────────────────────────────
 async function init() {
   await msalInstance.initialize();
-
   const accounts = msalInstance.getAllAccounts();
   if (accounts.length > 0) {
     setUser(accounts[0]);
@@ -177,24 +201,19 @@ async function init() {
 async function signIn() {
   try {
     const response = await msalInstance.loginPopup({ scopes });
-    if (response?.account) {
-      setUser(response.account);
-      await loadData();
-    }
+    if (response?.account) { setUser(response.account); await loadData(); }
   } catch (err) {
     setStatus("Sign-in failed: " + err.message, false, true);
     console.error(err);
   }
 }
 
-function signOut() {
-  msalInstance.logoutPopup();
-}
+function signOut() { msalInstance.logoutPopup(); }
 
 function setUser(account) {
-  document.getElementById('userLabel').textContent       = account.username;
-  document.getElementById('btnSignIn').style.display     = 'none';
-  document.getElementById('btnSignOut').style.display    = 'inline-block';
+  document.getElementById('userLabel').textContent    = account.username;
+  document.getElementById('btnSignIn').style.display  = 'none';
+  document.getElementById('btnSignOut').style.display = 'inline-block';
 }
 
 async function getToken() {
@@ -209,6 +228,7 @@ async function getToken() {
   }
 }
 
+// ── DATA ──────────────────────────────────────────────────────────────────────
 async function loadData() {
   setStatus("Fetching data from SharePoint…", false);
   try {
@@ -237,33 +257,88 @@ async function loadData() {
   }
 }
 
+// ── FILTERS ───────────────────────────────────────────────────────────────────
 function populateFilters() {
-  fillSelect('filterDev',      [...new Set(allData.map(r => r.d))].sort(), 'All Developers');
-  fillSelect('filterProd',     [...new Set(allData.map(r => r.p))].sort(), 'All Products');
-  fillSelect('filterYearFrom', [...new Set(allData.map(r => r.y))].sort(), 'All');
-  fillSelect('filterYearTo',   [...new Set(allData.map(r => r.y))].sort(), 'All');
+  const devs  = [...new Set(allData.map(r => r.d))].sort();
+  const prods = [...new Set(allData.map(r => r.p))].sort();
+  const years = [...new Set(allData.map(r => r.y))].sort();
+
+  // Build developer toggle buttons
+  const container = document.getElementById('devToggles');
+  // Keep the "All" button, add one per developer
+  devs.forEach(dev => {
+    const btn = document.createElement('button');
+    btn.className = 'dev-toggle';
+    btn.textContent = dev;
+    btn.onclick = () => toggleDev(dev, btn);
+    container.appendChild(btn);
+  });
+
+  fillSelect('filterProd',     prods, 'All Products');
+  fillSelect('filterYearFrom', years, 'All');
+  fillSelect('filterYearTo',   years, 'All');
 }
 
 function fillSelect(id, values, allLabel) {
   const sel = document.getElementById(id);
   sel.innerHTML = `<option value="All">${allLabel}</option>`;
-  values.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); });
+  values.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  });
+}
+
+function toggleDev(dev, btn) {
+  const allBtn = document.querySelector('.all-btn');
+
+  if (dev === '__all__') {
+    // Click All — deselect everything else, select All
+    selectedDevs = new Set(['__all__']);
+    document.querySelectorAll('.dev-toggle:not(.all-btn)').forEach(b => b.classList.remove('active'));
+    allBtn.classList.add('active');
+  } else {
+    // Toggle this developer
+    if (selectedDevs.has(dev)) {
+      selectedDevs.delete(dev);
+      btn.classList.remove('active');
+    } else {
+      selectedDevs.add(dev);
+      btn.classList.add('active');
+    }
+    // Remove __all__ when individual devs are chosen
+    selectedDevs.delete('__all__');
+    allBtn.classList.remove('active');
+
+    // If nothing selected, revert to All
+    if (selectedDevs.size === 0) {
+      selectedDevs.add('__all__');
+      allBtn.classList.add('active');
+    }
+  }
+  applyFilters();
 }
 
 function applyFilters() {
-  const dev = document.getElementById('filterDev').value;
-  const prod = document.getElementById('filterProd').value;
+  const prod  = document.getElementById('filterProd').value;
   const yFrom = document.getElementById('filterYearFrom').value;
   const yTo   = document.getElementById('filterYearTo').value;
+
   let filtered = allData;
-  if (dev   !== 'All') filtered = filtered.filter(r => r.d === dev);
+
+  // Developer multi-select
+  if (!selectedDevs.has('__all__')) {
+    filtered = filtered.filter(r => selectedDevs.has(r.d));
+  }
   if (prod  !== 'All') filtered = filtered.filter(r => r.p === prod);
   if (yFrom !== 'All') filtered = filtered.filter(r => r.y >= +yFrom);
   if (yTo   !== 'All') filtered = filtered.filter(r => r.y <= +yTo);
+
   updateKpis(filtered);
   renderChart(filtered);
 }
 
+// ── KPIs ──────────────────────────────────────────────────────────────────────
 function updateKpis(data) {
   document.getElementById('kpiTotal').textContent    = data.reduce((s,r) => s+(r.a||0), 0).toLocaleString();
   document.getElementById('kpiProducts').textContent = new Set(data.map(r=>r.p)).size;
@@ -271,6 +346,7 @@ function updateKpis(data) {
   document.getElementById('kpiDevs').textContent     = new Set(data.map(r=>r.d)).size;
 }
 
+// ── CHART ─────────────────────────────────────────────────────────────────────
 function renderChart(data) {
   if (!data.length) { showEmpty(); return; }
   document.getElementById('emptyState').style.display  = 'none';
@@ -301,6 +377,7 @@ function renderChart(data) {
   });
 }
 
+// ── HELPERS ───────────────────────────────────────────────────────────────────
 function setStatus(msg, ok, err) {
   const bar = document.getElementById('statusBar');
   bar.className = err ? 'error' : ok ? 'ok' : '';
